@@ -1,0 +1,25 @@
+{
+    "Lua.diagnostics.globals": [
+        "game",
+        "settings",
+        "script",
+        "global",
+        "entity",
+        "defines",
+        "data",
+        "rendering",
+        "mods",
+        "log",
+        "util",
+        "table",
+        "serpent",
+        "circuit_connector_definitions",
+        "commands",
+        "remote",
+        "logistic_chest_opened_duration",
+        "default_circuit_wire_max_distance"
+    ],
+    "Lua.diagnostics.disable": [
+        "lowercase-global"
+    ]
+}
