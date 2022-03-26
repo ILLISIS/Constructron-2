@@ -1,3 +1,4 @@
+ -- luacheck: ignore
 local custom_lib = require("__Constructron-2__.data.lib.custom_lib")
 local Action = require("__Constructron-2__.script.objects.actions.Action")
 
@@ -27,7 +28,10 @@ end
 -- Class Methods
 function Action_do_task:handleStateTransition(job)
     self:log()
-    local newState = "task_completed"
+    local newState = Action.handleStateTransition(self,job)
+    if not newState then
+        newState= "task_completed"
+    end
     return newState
 end
 

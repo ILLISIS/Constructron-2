@@ -1,13 +1,14 @@
 local custom_lib = require("__Constructron-2__.data.lib.custom_lib")
+local control_lib = require("__Constructron-2__.script.lib.control_lib")
 local Task_construction = require("__Constructron-2__.script.objects.Task-construction")
 local Task_delivery = require("__Constructron-2__.script.objects.Task-delivery")
 local Debug = require("__Constructron-2__.script.objects.Debug")
 local Job = require("__Constructron-2__.script.objects.Job")
+local Ctron = require("__Constructron-2__.script.objects.Ctron")
 
 -- class Type Surface_manager, nil members exist just to describe fields
 local Surface_manager = {
     class_name = "Surface_manager"
-    
 }
 Surface_manager.__index = Surface_manager
 
@@ -30,36 +31,32 @@ function Surface_manager:new(surface, force)
     global.surface_managers = global.surface_managers or {}
     if surface.valid then
         self.id = surface.index
-        self.surface_id = surface.index
+        self.surface_index = surface.index
+        self.surface = surface
         if force then
+            self.force = force
             self.id = self.id .. "-" .. force.index
-            self.force_id = force.index
+            self.force_index = force.index
         end
-        global.surface_managers[self.id] =
-            global.surface_managers[self.id] or
-            {
-                surface_id = self.surface_id,
-                force_id = self.force_id,
-                chunks = {},
-                tasks = {}
-            }
-        -- fix/remove or {}
-        global.surface_managers[self.id].chunks = global.surface_managers[self.id].chunks or {}
-        global.surface_managers[self.id].tasks = global.surface_managers[self.id].tasks or {}
-        global.surface_managers[self.id].jobs = global.surface_managers[self.id].jobs or {}
-        self.chunks = global.surface_managers[self.id].chunks
-        self.tasks = global.surface_managers[self.id].tasks
-        self.jobs = global.surface_managers[self.id].jobs
+        self.chunks = {}
+        self.tasks = {}
+        self.jobs = {}
         self.job_actions = {}
+        self.constructrons = {}
+        self.stations = {}
+
+        for k, v in pairs(global.surface_managers[self.id] or {}) do
+            self[k] = v
+        end
+
+        global.surface_managers[self.id] = global.surface_managers[self.id] or self
         for key, action in pairs(Job.actions) do
             self.job_actions[key] = action(self)
         end
-        self.constructrons = {}
-        self.stations = {}
     end
 end
 
--- Generic Type based initialization
+-- Static Methods
 function Surface_manager.init_globals()
     global.surface_managers = global.surface_managers or {}
 end
@@ -71,34 +68,73 @@ end
 -- Class Methods
 function Surface_manager:destroy()
     self:log()
-    global.surface_managers[self.id] = nil
+    -- ToDo call destroy for  all managed entities on force/surface
+    if global.surface_managers then
+        global.surface_managers[self.id] = nil
+    end
+end
+
+function Surface_manager:valid()
+    self:log()
+    if self.surface.valid == false then
+        return false
+    end
+    if self.force and self.force.valid == false then
+        return false
+    end
+    return true
 end
 -------------------------------------------------------------------------------
 --  Surface Processing
 -------------------------------------------------------------------------------
 
+function Surface_manager:get_stats()
+    return {
+        [self.surface.name] = {}
+    }
+end
+
 function Surface_manager:add_constructron(constructron)
-    self.constructrons[constructron] = constructron
+    self.constructrons[constructron.unit_number] = constructron
 end
 
 function Surface_manager:add_station(station)
-    self.stations[station] = station
-end     
+    self.stations[station.unit_number] = station
+end
+
+function Surface_manager:remove_constructron(constructron)
+    self.constructrons[constructron.unit_number] = nil
+end
+
+function Surface_manager:constructron_destroyed(constructron_data) -- luacheck: ignore
+    --if self.constructrons[constructron_data.unit_number] then
+    --    self.constructrons[constructron_data.unit_number]:destroy()
+    --    self.constructrons[constructron_data.unit_number] = nil
+    --end
+end
+
+function Surface_manager:remove_station(station)
+    self.stations[station.unit_number] = nil
+end
+
+function Surface_manager:station_destroyed(station_data) -- luacheck: ignore
+    --self:remove_station(...)
+end
 
 function Surface_manager:update(limit) -- luacheck: ignore
-    for key , constructron in pairs(self.constructrons) do
+    for key, constructron in pairs(self.constructrons) do
         if constructron:is_valid() then
             constructron:update()
         else
-            game.print("unregistered ctron "..key)
+            game.print("unregistered ctron " .. key)
             self.constructrons[key] = nil
         end
     end
-    for key , station in pairs(self.stations) do
+    for key, station in pairs(self.stations) do
         if station:is_valid() then
             station:update()
         else
-            game.print("unregistered station "..key)
+            game.print("unregistered station " .. key)
             self.stations[key] = nil
         end
     end
@@ -132,14 +168,14 @@ function Surface_manager:register_entity(entity)
     local x, y = Surface_manager.chunk_from_position(entity.position)
     local key = x .. "/" .. y
     self.chunks[key] = self.chunks[key] or {entities = {}}
-    local existing_entity = self.chunks[key].entities[entity]
+    local existing_entity = self.chunks[key].entities[control_lib.get_entity_key(entity)]
     if existing_entity then
         return
     else
         self:log("new entity in " .. key)
-        self.chunks[key].entities[entity] = entity
+        self.chunks[key].entities[control_lib.get_entity_key(entity)] = entity
         self:log("chunk" .. serpent.block(self.chunks[key]))
-        self:log("entity " .. serpent.block(self.chunks[key].entities[entity]))
+        self:log("entity " .. serpent.block(self.chunks[key].entities[control_lib.get_entity_key(entity)]))
     end
 end
 
@@ -148,7 +184,8 @@ function Surface_manager:unregister_entity(entity) -- luacheck: ignore
     local x, y = Surface_manager.chunk_from_position(entity.position)
     local key = x .. "/" .. y
     self.chunks[key] = self.chunks[key] or {entities = {}}
-    self.chunks[key].entities[entity] = nil
+    self.chunks[key].entities[control_lib.get_entity_key(entity)] = nil
+
     if custom_lib.table_length(self.chunks[key]) == 0 then
         self.chunks[key] = nil
     end
@@ -228,7 +265,6 @@ function Surface_manager:assign_jobs(limit)
         unit:set_status(Ctron.status.idle)
         local job = Job()
         --just simple 1:1  - fix later
-        key, task = next(self.tasks)
         job.add_task(task)
         self.tasks[key] = nil
         self.jobs[#(self.jobs) + 1] = job
@@ -239,8 +275,8 @@ function Surface_manager:assign_jobs(limit)
         --          split task if to large
         --          insert task with remainder to front of task-queue if task was split
         --      get next (until >80% full or next task fits in full or distance > 1.5 chunks)
-        has_task = next(self.tasks)
-        local unit = self:get_free_constructron()
+        key, task = next(self.tasks)
+        unit = self:get_free_constructron()
         c = c + 1
     end
     return c

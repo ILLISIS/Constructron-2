@@ -42,7 +42,11 @@ function Ctron:new(entity)
         self.force = entity.force
         self.last_status_update_tick = game.tick
         self.registration_id = script.register_on_entity_destroyed(entity)
-        global.constructrons.unit_registration[self.registration_id] = entity.unit_number
+        global.constructrons.unit_registration[self.registration_id] = {
+            unit_number = entity.unit_number,
+            surface_index = entity.surface.index,
+            force_index = entity.force.index
+        }
         global.constructrons.units[entity.unit_number] = entity
         self.status = Ctron.status.free
     else
@@ -80,6 +84,10 @@ function Ctron.init_managed_gear()
         end
     end
     log("managed_equipment" .. serpent.block(Ctron.managed_equipment))
+end
+
+function Ctron.update_tech_unlocks()
+    --just update tech unlocks for all forces
 end
 
 -- Equippment Grid Fixer

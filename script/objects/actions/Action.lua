@@ -1,3 +1,4 @@
+-- luacheck: ignore
 local custom_lib = require("__Constructron-2__.data.lib.custom_lib")
 local Debug = require("__Constructron-2__.script.objects.Debug")
 
@@ -28,6 +29,7 @@ end
 -- Class Methods
 function Action:handleStateTransition(job)
     self:log()
+    -- state transitions that do not depend on input state here.
     local newState = nil
     return newState
 end
