@@ -19,6 +19,7 @@ local EntityClass = {
     ["ctron-steam-powered"] = require("__Constructron-2__.script.objects.Ctron-steam-powered"),
     ["ctron-solar-powered"] = require("__Constructron-2__.script.objects.Ctron-solar-powered"),
     ["ctron-nuclear-powered"] = require("__Constructron-2__.script.objects.Ctron-nuclear-powered"),
+    ["ctron-rocket-powered"] = require("__Constructron-2__.script.objects.Ctron-rocket-powered"),
     ["service-station"] = require("__Constructron-2__.script.objects.Station")
 }
 
@@ -102,11 +103,20 @@ local function on_init()
     Spidertron_Pathfinder.init_globals()
     Surface_manager.init_globals()
     Entity_processing_queue.init_globals()
-    entity_processing_queue = Entity_processing_queue(assign_entity_to_surface)
 
     technology_unlocker.reload_tech("spidertron")
     Ctron.update_tech_unlocks()
+end
 
+--- main worker unit updates
+-- @param event from factorio framework
+local function on_nth_tick_300(_)
+    log("control:on_nth_tick_300")
+    for force_index, _ in pairs(surface_managers) do
+        for _, surface_manager in pairs(surface_managers[force_index]) do
+            surface_manager:tick_update()
+        end
+    end
 end
 
 --- main worker for unit/job processing
@@ -143,6 +153,7 @@ end
 local function on_tick_once(_)
     log("control:on_tick_once")
     Ctron.init_managed_gear()
+    entity_processing_queue = Entity_processing_queue(assign_entity_to_surface)
     Spidertron_Pathfinder.check_pathfinder_requests_timeout()
 
     --create surface-manager objects
@@ -168,6 +179,7 @@ local function on_tick_once(_)
     -- unschduel self and schedule main worker
     script.on_event(defines.events.on_tick, nil)
     script.on_nth_tick(120, on_nth_tick_60)
+    script.on_nth_tick(300, on_nth_tick_300)
 end
 
 --- Event handler on_player_removed_equipment
@@ -247,22 +259,13 @@ end
 -- @param event from factorio framework
 local function on_entity_cloned(event)
     log("control:on_entity_cloned")
-    local entity = event.source
-    -- todo check if type check makes more sense if done in surfasce manager
+    local entity = event.destination
     if EntityClass[entity.name] then
-        --unregister at old surface
+        --register at new surface
         local obj = EntityClass[entity.name](entity)
         if entity.name == "service-station" then
-            surface_managers[entity.surface.index][entity.force.index]:remove_station(obj)
-        elseif custom_lib.table_has_value({"ctron-classic", "ctron-steam-powered", "ctron-solar-powered", "ctron-nuclear-powered"}, entity.name) then
-            surface_managers[entity.surface.index][entity.force.index]:remove_constructron(obj)
-        end
-        --register at new surface
-        entity = event.destination
-        obj = EntityClass[entity.name](entity)
-        if entity.name == "service-station" then
             surface_managers[entity.surface.index][entity.force.index]:add_station(obj)
-        elseif custom_lib.table_has_value({"ctron-classic", "ctron-steam-powered", "ctron-solar-powered", "ctron-nuclear-powered"}, entity.name) then
+        else
             obj:set_request_items()
             surface_managers[entity.surface.index][entity.force.index]:add_constructron(obj)
         end
@@ -288,7 +291,8 @@ script.on_event(
         {filter = "name", name = "ctron-classic", invert = true, mode = "or"},
         {filter = "name", name = "ctron-steam-powered", invert = true, mode = "or"},
         {filter = "name", name = "ctron-solar-powered", invert = true, mode = "or"},
-        {filter = "name", name = "ctron-nuclear-powered", invert = true, mode = "or"}
+        {filter = "name", name = "ctron-nuclear-powered", invert = true, mode = "or"},
+        {filter = "name", name = "ctron-rocket-powered", invert = true, mode = "or"}
     }
 )
 script.on_event({ev.on_entity_destroyed, ev.script_raised_destroy}, on_entity_destroyed)

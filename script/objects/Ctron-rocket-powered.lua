@@ -1,24 +1,24 @@
 local Ctron = require("__Constructron-2__.script.objects.Ctron")
 local control_lib = require("__Constructron-2__.script.lib.control_lib")
 
--- class Type Ctron_steam_powered, nil members exist just to describe fields
-local Ctron_steam_powered = {
-    class_name = "Ctron_steam_powered",
+-- class Type Ctron_rocket_powered, nil members exist just to describe fields
+local Ctron_rocket_powered = {
+    class_name = "Ctron_rocket_powered",
     gear = {
-        "ctron-steam-powered-roboport-equipment",
-        "ctron-steam-powered-reactor-equipment",
-        "ctron_steam_powered_leg-{movement_research}",
-        "ctron-steam-powered-battery-equipment"
+        "ctron-rocket-powered-roboport-equipment",
+        "ctron-rocket-powered-reactor-equipment",
+        "ctron_rocket_powered_leg-{movement_research}",
+        "ctron-rocket-powered-battery-equipment"
     },
     managed_equipment_cols = 4,
-    fuel = "coal",
+    fuel = "rocket-fuel",
     robots = 5
 }
 
-Ctron_steam_powered.__index = Ctron_steam_powered
+Ctron_rocket_powered.__index = Ctron_rocket_powered
 
 setmetatable(
-    Ctron_steam_powered,
+    Ctron_rocket_powered,
     {
         __index = Ctron, -- this is what makes the inheritance work
         __call = function(cls, ...)
@@ -29,15 +29,14 @@ setmetatable(
     }
 )
 
--- Ctron_steam_powered Constructor
-function Ctron_steam_powered:new(entity)
-    log("Ctron_steam_powered.new")
+-- Ctron_rocket_powered Constructor
+function Ctron_rocket_powered:new(entity)
+    log("Ctron_rocket_powered.new")
     Ctron.new(self, entity)
     self:setup_gear()
 end
 
-function Ctron_steam_powered:tick_update()
-    self:log()
+function Ctron_rocket_powered:tick_update()
     Ctron.tick_update(self)
     if self:is_valid() then
         local transfer_efficiency = 0.5
@@ -59,43 +58,25 @@ function Ctron_steam_powered:tick_update()
     end
 end
 
-function Ctron_steam_powered:set_request_items(request_items, item_whitelist)
+function Ctron_rocket_powered:set_request_items(request_items, item_whitelist)
     request_items = request_items or {}
     request_items[self.fuel] = (request_items[self.fuel] or 0) + control_lib.get_stack_size(self.fuel) * #(self.entity.burner.inventory)
     request_items["construction-robot"] = (request_items["construction-robot"] or 0) + self.robots
     Ctron.set_request_items(self, request_items, item_whitelist)
 end
 
---[[
-function Ctron_steam_powered:enable_constrcution()
-    Ctron.enable_construction(self)
+function Ctron_rocket_powered:go_to(target)
+    if self:is_valid() and target then
+        -- never pathfind, we can fly
+        self:set_autopilot({{position = target}})
+    end
 end
-function Ctron_steam_powered:disable_constrcution()
+
+function Ctron_rocket_powered:enable_constrcution()
+    Ctron.enable_constrcution(self)
+end
+function Ctron_rocket_powered:disable_constrcution()
     Ctron.enable_constrcution(self)
 end
 
-
-function Companion:set_robot_stack()
-  local inventory = self:get_inventory()
-  if not inventory.set_filter(21,"companion-construction-robot") then
-    inventory[21].clear()
-    inventory.set_filter(21,"companion-construction-robot")
-  end
-
-  if self.can_construct then
-    inventory[21].set_stack({name = "companion-construction-robot", count = 100})
-  else
-    inventory[21].clear()
-  end
-end
-
-function Companion:clear_robot_stack()
-  local inventory = self:get_inventory()
-  if not inventory.set_filter(21,"companion-construction-robot") then
-    inventory[21].clear()
-    inventory.set_filter(21,"companion-construction-robot")
-  end
-  inventory[21].clear()
-end
-]]
-return Ctron_steam_powered
+return Ctron_rocket_powered

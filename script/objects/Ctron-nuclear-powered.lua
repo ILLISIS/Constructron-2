@@ -1,4 +1,5 @@
 local Ctron = require("__Constructron-2__.script.objects.Ctron")
+local control_lib = require("__Constructron-2__.script.lib.control_lib")
 
 -- class Type Ctron_nuclear_powered, nil members exist just to describe fields
 local Ctron_nuclear_powered = {
@@ -11,7 +12,6 @@ local Ctron_nuclear_powered = {
     },
     managed_equipment_cols = 5,
     fuel = "uranium-fuel-cell",
-    fuel_count = 50,
     robots = 120
 }
 
@@ -37,7 +37,7 @@ function Ctron_nuclear_powered:new(entity)
 end
 
 function Ctron_nuclear_powered:tick_update()
-    Ctron:tick_update()
+    Ctron.tick_update(self)
     if self.entity.valid then
         local transfer_efficiency = 0.5
         local grid = self.entity.grid
@@ -60,7 +60,7 @@ end
 
 function Ctron_nuclear_powered:set_request_items(request_items, item_whitelist)
     request_items = request_items or {}
-    request_items[self.fuel] = (request_items[self.fuel] or 0) + self.fuel_count
+    request_items[self.fuel] = (request_items[self.fuel] or 0) + control_lib.get_stack_size(self.fuel) * #(self.entity.burner.inventory)
     request_items["construction-robot"] = (request_items["construction-robot"] or 0) + self.robots
     Ctron.set_request_items(self, request_items, item_whitelist)
 end

@@ -33,6 +33,7 @@ function Task:new(obj)
     global.tasks[self.id] = self
     self.entities = {}
     self:log("id " .. self.id)
+    self.current_position = 1
 end
 
 -- Generic Type based initialization
@@ -49,6 +50,29 @@ end
 function Task:add_entity(entity)
     self:log()
     self.entities[control_lib.get_entity_key(entity)] = entity
+end
+
+function Task:get_next_position()
+    if self.current_position == 1 then
+        self.current_position = self.current_position + 1
+        return self:get_position()
+    end
+end
+
+function Task:get_position()
+    self:log()
+    local position = {x = 0, y = 0}
+    if next(self.entities) then
+        local c = 0
+        for _, entity in pairs(self.entities) do
+            position.x = entity.position.x
+            position.y = entity.position.y
+            c = c + 1
+        end
+        position.x = math.floor(position.x / c * 1000 + 0.5) / 1000
+        position.y = math.floor(position.y / c * 1000 + 0.5) / 1000
+        return position
+    end
 end
 
 function Task:get_items()
@@ -80,6 +104,16 @@ function Task:get_stack_count()
     end
 end
 
+function Task:mark_completed()
+    self:log()
+    self.completed = true
+end
+
+function Task:get_completed()
+    self:log()
+    return self.completed
+end
+
 function Task:update()
     self:log()
     local items = {}
@@ -89,6 +123,10 @@ function Task:update()
             self:log(k .. " " .. v)
             items[k] = (items[k] or 0) + v
         end
+    end
+    local item_count = custom_lib.table_length(items)
+    if item_count == 0 then
+        self:mark_completed()
     end
     self.items = items
 end

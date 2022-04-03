@@ -34,7 +34,7 @@ function Ctron_solar_powered:new(entity)
 end
 
 function Ctron_solar_powered:tick_update()
-    Ctron:tick_update()
+    Ctron.tick_update(self)
     if self.entity.valid then
         local grid = self.entity.grid
         if grid.available_in_batteries > 0 then
@@ -63,6 +63,17 @@ function Ctron_solar_powered:tick_update()
             self.entity.burner.remaining_burning_fuel = remaining_burning_fuel
         end
     end
+end
+
+function Ctron_solar_powered:status_update()
+    if self:is_valid() then
+        local status = Ctron.status_update(self)
+        if self.entity.burner and not self.entity.burner.currently_burning then
+            status = Ctron.status.no_energy
+        end
+        return status
+    end
+
 end
 
 function Ctron_solar_powered:set_request_items(request_items, item_whitelist)

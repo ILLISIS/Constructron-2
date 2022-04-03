@@ -1,14 +1,14 @@
 local lib_equipment = require("__Constructron-2__.data.lib.lib_equipment")
-local ctron_steam_powered = {}
+local ctron_rocket_powered = {}
 
 --equipment: reactor
-local ctron_steam_powered_reactor =
+local ctron_rocket_powered_reactor =
     lib_equipment.make_equipment(
     "reactor",
     {
-        name = "ctron-steam-powered-reactor-equipment",
+        name = "ctron-rocket-powered-reactor-equipment",
         categories = {
-            "ctron-steam-powered-equipment",
+            "ctron-rocket-powered-equipment",
             "constructron-managed"
         },
         power = "1W",
@@ -29,23 +29,23 @@ local ctron_steam_powered_reactor =
         }
     }
 )
-table.insert(ctron_steam_powered, ctron_steam_powered_reactor)
-local ctron_steam_powered_reactor_item =
+table.insert(ctron_rocket_powered, ctron_rocket_powered_reactor)
+local ctron_rocket_powered_reactor_item =
     lib_equipment.make_equipment(
     "item",
     {
-        name = "ctron-steam-powered-reactor-equipment",
-        placed_as_equipment_result = "ctron-steam-powered-reactor-equipment"
+        name = "ctron-rocket-powered-reactor-equipment",
+        placed_as_equipment_result = "ctron-rocket-powered-reactor-equipment"
     }
 )
-table.insert(ctron_steam_powered, ctron_steam_powered_reactor_item)
+table.insert(ctron_rocket_powered, ctron_rocket_powered_reactor_item)
 
 --equipment: roboport
-local ctron_steam_powered_roboport =
+local ctron_rocket_powered_roboport =
     lib_equipment.make_equipment(
     "roboport",
     {
-        name = "ctron-steam-powered-roboport-equipment",
+        name = "ctron-rocket-powered-roboport-equipment",
         charging_energy = "500kW",
         charging_station_count = 5,
         robot_limit = 5,
@@ -55,71 +55,71 @@ local ctron_steam_powered_roboport =
             input_flow_limit = "5MW"
         },
         categories = {
-            "ctron-steam-powered-equipment",
+            "ctron-rocket-powered-equipment",
             "constructron-managed"
         },
         order = "constructron=0;2"
     }
 )
-table.insert(ctron_steam_powered, ctron_steam_powered_roboport)
-local ctron_steam_powered_roboport_item =
+table.insert(ctron_rocket_powered, ctron_rocket_powered_roboport)
+local ctron_rocket_powered_roboport_item =
     lib_equipment.make_equipment(
     "item",
     {
-        name = "ctron-steam-powered-roboport-equipment",
-        placed_as_equipment_result = "ctron-steam-powered-roboport-equipment"
+        name = "ctron-rocket-powered-roboport-equipment",
+        placed_as_equipment_result = "ctron-rocket-powered-roboport-equipment"
     }
 )
-table.insert(ctron_steam_powered, ctron_steam_powered_roboport_item)
+table.insert(ctron_rocket_powered, ctron_rocket_powered_roboport_item)
 
 --equipment: battery
-local ctron_steam_powered_battery_equipment =
+local ctron_rocket_powered_battery_equipment =
     lib_equipment.make_equipment(
     "battery",
     {
-        name = "ctron-steam-powered-battery-equipment",
+        name = "ctron-rocket-powered-battery-equipment",
         energy_source = {buffer_capacity = "40MJ"},
         shape = {width = 2},
         categories = {
-            "ctron-steam-powered-equipment",
+            "ctron-rocket-powered-equipment",
             "constructron-managed"
         },
         order = "constructron=3;2"
     }
 )
-table.insert(ctron_steam_powered, ctron_steam_powered_battery_equipment)
+table.insert(ctron_rocket_powered, ctron_rocket_powered_battery_equipment)
 
-local ctron_steam_powered_battery_item =
+local ctron_rocket_powered_battery_item =
     lib_equipment.make_equipment(
     "item",
     {
-        name = "ctron-steam-powered-battery-equipment",
-        placed_as_equipment_result = "ctron-steam-powered-battery-equipment"
+        name = "ctron-rocket-powered-battery-equipment",
+        placed_as_equipment_result = "ctron-rocket-powered-battery-equipment"
     }
 )
-table.insert(ctron_steam_powered, ctron_steam_powered_battery_item)
+table.insert(ctron_rocket_powered, ctron_rocket_powered_battery_item)
 
 --equipment: legs x5
 for k, v in pairs(
     {
-        [1] = -0.4,
-        [2] = -0.2,
-        [3] = 0.0,
-        [4] = 0.2,
-        [5] = 0.4
+        [1] = -0.5,
+        [2] = -0.3,
+        [3] = 0.1,
+        [4] = 0.3,
+        [5] = 0.5
     }
 ) do
-    table.insert(ctron_steam_powered, lib_equipment.make_equipment("item", {name = "ctron_steam_powered_leg-" .. k, placed_as_equipment_result = "ctron_steam_powered_leg-" .. k}))
+    table.insert(ctron_rocket_powered, lib_equipment.make_equipment("item", {name = "ctron_rocket_powered_leg-" .. k, placed_as_equipment_result = "ctron_rocket_powered_leg-" .. k}))
     table.insert(
-        ctron_steam_powered,
+        ctron_rocket_powered,
         lib_equipment.make_equipment(
             "movement_bonus",
             {
-                name = "ctron_steam_powered_leg-" .. k,
+                name = "ctron_rocket_powered_leg-" .. k,
                 movement_bonus = v,
                 energy_consumption = v>0 and (k  .. "kW") or "0.1W",
                 categories = {
-                    "ctron-steam-powered-equipment",
+                    "ctron-rocket-powered-equipment",
                     "constructron-managed"
                 },
                 order = "constructron=2;2"
@@ -128,4 +128,4 @@ for k, v in pairs(
     )
 end
 
-return ctron_steam_powered
+return ctron_rocket_powered
