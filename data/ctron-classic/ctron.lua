@@ -1,9 +1,15 @@
+-- equipment category
+local constructron_classic_category = {
+    name = "constructron-classic",
+    type = "equipment-category"
+}
+
 local constructron_grid = {
     name = "ctron-classic-equipment-grid",
     type = "equipment-grid",
     height = 6,
     width = 10,
-    equipment_categories = {"constructron-unmanaged"}
+    equipment_categories = {"constructron-unmanaged", "constructron-classic"}
 }
 
 local lib_spider = require("__Constructron-2__.data.lib.lib_spider")
@@ -56,7 +62,7 @@ local constructron_recipe = {
     energy = 1
 }
 
-local ctron_classic = {constructron, constructron_grid, constructron_item, constructron_recipe}
+local ctron_classic = {constructron, constructron_classic_category, constructron_grid, constructron_item, constructron_recipe}
 
 for _, leg in pairs(leg_entities) do
     table.insert(ctron_classic, leg)
