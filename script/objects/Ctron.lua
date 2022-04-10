@@ -1,8 +1,11 @@
-﻿local Debug = require("__Constructron-2__.script.objects.Debug")
+﻿--local Class = require("__Constructron-2__.script.objects.Class")
+local Debug = require("__Constructron-2__.script.objects.Debug")
 --local util = require("__core__.lualib.util")
 local custom_lib = require("__Constructron-2__.data.lib.custom_lib")
 
--- class Type Ctron, nil members exist just to describe fields
+---@class Ctron : Debug
+---@field entity LuaEntity
+---@field status table<string, number>
 local Ctron = {
     class_name = "Ctron",
     -- <base game spidertron entity unit_number used as PK for everything>
@@ -17,7 +20,8 @@ local Ctron = {
     managed_equipment = {},
     managed_equipment_cols = 0,
     last_status_update_tick = 0,
-    movement_research = 1
+    movement_research = 1,
+    inventory_filters = {}
 }
 Ctron.__index = Ctron
 
@@ -33,7 +37,8 @@ setmetatable(
     }
 )
 
--- Ctron Constructor
+---comment
+---@param entity LuaEntity
 function Ctron:new(entity)
     self:log()
     Debug.new(self, nil)
@@ -51,16 +56,15 @@ function Ctron:new(entity)
             force_index = entity.force.index
         }
         global.constructrons.units[entity.unit_number] = entity
-        self.status = Ctron.status.free
     else
         log("Ctron:entity invalid")
     end
 end
 
--- Static members
 Ctron.status = {
     requesting = 4,
     robots_active = 3,
+    robots_charging = 10,
     idle = 1,
     traveling = 2,
     error = 6,
@@ -68,7 +72,7 @@ Ctron.status = {
     no_power = 7,
     no_fuel = 8
 }
--- Generic Type based initialization
+--- Generic Type based initialization
 function Ctron.init_globals()
     global.constructrons = global.constructrons or {}
     global.constructrons.units = global.constructrons.units or {}
@@ -76,6 +80,7 @@ function Ctron.init_globals()
     global.constructrons.unit_status = global.constructrons.unit_status or {}
 end
 
+---comment
 function Ctron.init_managed_gear()
     -- Use "order" field to store predefined grid location as csv
     for _, prototype in pairs(game.equipment_prototypes) do
@@ -88,15 +93,17 @@ function Ctron.init_managed_gear()
     log("managed_equipment" .. serpent.block(Ctron.managed_equipment))
 end
 
+---comment
 function Ctron.update_tech_unlocks()
     --just update tech unlocks for all forces
 end
 
--- Equippment Grid Fixer
---[[Rseding91: "The equipment grid has no idea what entity currently owns it - and may not even be owned by an entity."
-    --> on_player_removed_equipment event needs to operate on the grid and it is near impossible to get a related entity
-    --> we just care about the equipment_name and assume the layout was validated in Ctron:setup_gear()
-]]
+---Equippment Grid Fixer
+--- --> Rseding91: "The equipment grid has no idea what entity currently owns it - and may not even be owned by an entity."
+--- --> on_player_removed_equipment event needs to operate on the grid and it is near impossible to get a related entity
+--- --> we just care about the equipment_name and assume the layout was validated in Ctron:setup_gear()
+---@param equipment_grid LuaEquipmentGrid
+---@param equipment_name string
 function Ctron.restore_gear(equipment_grid, equipment_name)
     log("restore_gear")
     if equipment_grid then
@@ -110,11 +117,14 @@ function Ctron.restore_gear(equipment_grid, equipment_name)
     end
 end
 
+---comment
+---@param unit_registration_number int
+---@return table
 function Ctron.get_registered_unit(unit_registration_number)
     return global.constructrons.unit_registration[unit_registration_number]
 end
--- Class Methods
 
+---comment
 function Ctron:destroy()
     self:log()
     global.constructrons.unit_registration[self.registration_id] = nil
@@ -177,6 +187,8 @@ function Ctron:tick_update()
     end
 end
 
+---comment
+---@return nil
 function Ctron:status_update()
     self:log()
     if self:is_valid() then
@@ -191,10 +203,19 @@ function Ctron:status_update()
             return self:set_status(Ctron.status.traveling)
         end
 
-        if self:is_moving() == false and self.construction_enabled and self:robots_inactive() == false then
-            return self:set_status(Ctron.status.constructing)
-        end
+        if self:is_moving() == false and self.construction_enabled then
+            if self:robots_inactive() == false then
+                return self:set_status(Ctron.status.robots_active)
+            end
 
+            for i, equipment in pairs(self.entity.grid.equipment) do -- does not account for only 1 item in grid
+                if equipment.type == "roboport-equipment" then
+                    if (equipment.energy / equipment.max_energy) < 0.99 then
+                        return self:set_status(Ctron.status.robots_charging)
+                    end
+                end
+            end
+        end
         if self:in_logistic_network() then
             local active_logistic_requests = self:get_logistic_status() or {}
             if custom_lib.table_length(active_logistic_requests) > 0 then
@@ -215,14 +236,18 @@ function Ctron:status_update()
     end
 end
 
+---comment
+---@param name string
+---@return string
 function Ctron:parse_gear_name(name)
     name = string.gsub(name, "{movement_research}", tostring(self.movement_research))
     return name
 end
 
+---comment
 function Ctron:setup_gear()
     self:log()
-    self:attach_text(self.entity, "update_gear", self.debug.def.dynamic, 2)
+    self:attach_text(self.entity, "update_gear", self.debug_definition.lines.dynamic, 2)
     if self:is_valid() and #(self.gear) > 0 then
         -- remove incorrect gear
         local equipment_grid = self.entity.grid
@@ -271,9 +296,12 @@ function Ctron:setup_gear()
                 }
             end
         end
+    -- if not moving and auto pilot nil and target then go to target
     end
 end
 
+---comment
+---@return float
 function Ctron:get_health_ratio()
     self:log()
     if self:is_valid() then
@@ -289,10 +317,13 @@ end
 
 function Ctron:assign_job(job_id)
     self:log()
-    self:attach_text(self.entity, "set_job", self.debug.def.dynamic, 2)
+    self:attach_text(self.entity, "set_job", self.debug_definition.lines.dynamic, 2)
     self.job_id = job_id
 end
 
+---comment
+---@param status string|int
+---@return string
 function Ctron:set_status(status)
     self:log()
     if self:is_valid() then
@@ -303,12 +334,12 @@ function Ctron:set_status(status)
                 if value == status then
                     parsed_status = status
                     self:log(key)
-                    self:attach_text(self.entity, key, self.debug.def.line_2, 2)
+                    self:attach_text(self.entity, key, self.debug_definition.lines.line_2, 2)
                 end
             end
         else
             self:log(status)
-            self:attach_text(self.entity, status, self.debug.def.line_2, 2)
+            self:attach_text(self.entity, status, self.debug_definition.lines.line_2, 2)
             parsed_status = Ctron.status[status]
         end
         if not parsed_status then
@@ -319,10 +350,16 @@ function Ctron:set_status(status)
         return parsed_status
     end
 end
+
+---comment
+---@return number|uint
 function Ctron:get_last_status_update_tick()
     self:log()
     return self.last_status_update_tick
 end
+
+---comment
+---@return number
 function Ctron:get_status_id()
     self:log()
     local status
@@ -338,6 +375,8 @@ function Ctron:get_status_id()
     return Ctron.status.idle
 end
 
+---comment
+---@return string
 function Ctron:get_status_name()
     self:log()
     local status_id = self:get_status_id()
@@ -350,6 +389,9 @@ function Ctron:get_status_name()
     return "idle" --return Ctron.status.idle
 end
 
+---comment
+---@param inventory_type string
+---@return table
 function Ctron:get_inventory(inventory_type)
     self:log()
     -- todo: cache if on the same tick
@@ -376,6 +418,8 @@ function Ctron:get_inventory(inventory_type)
     return items
 end
 
+---comment
+---@return table
 function Ctron:get_main_inventory_stats()
     self:log()
     if self:is_valid() then
@@ -394,6 +438,8 @@ function Ctron:get_main_inventory_stats()
     end
 end
 
+---comment
+---@return boolean
 function Ctron:in_logistic_network()
     if self:is_valid() then
         local network = self.entity.logistic_network
@@ -404,6 +450,8 @@ function Ctron:in_logistic_network()
     end
 end
 
+---comment
+---@return table
 function Ctron:get_logistic_status()
     self:log()
     local request = {}
@@ -432,9 +480,13 @@ function Ctron:get_logistic_status()
     return request
 end
 
+---comment
+---@param request_items table
+---@param item_whitelist table
+---@return boolean
 function Ctron:set_request_items(request_items, item_whitelist)
     self:log()
-    self:attach_text(self.entity, "set_request_items", self.debug.def.dynamic, 2)
+    self:attach_text(self.entity, "set_request_items", self.debug_definition.lines.dynamic, 2)
     if self:is_valid() then
         local updated = false
         request_items = request_items or {}
@@ -480,17 +532,21 @@ function Ctron:set_request_items(request_items, item_whitelist)
     end
 end
 
+---comment
 function Ctron:clear_items()
     self:log()
     self:set_request_items({})
 end
 
+---comment
 function Ctron:clear_requests()
     self:log()
     local inventory = Ctron:get_inventory("spider_trunk")
     self:set_request_items({}, inventory)
 end
 
+---comment
+---@return table
 function Ctron:get_position()
     self:log()
     if self:is_valid() then
@@ -502,6 +558,8 @@ function Ctron:get_position()
     end
 end
 
+---comment
+---@return boolean
 function Ctron:is_moving()
     self:log()
     if self:is_valid() then
@@ -509,6 +567,9 @@ function Ctron:is_moving()
     end
 end
 
+---comment
+---@param position MapPosition
+---@return number
 function Ctron:distance_to(position)
     self:log(serpent.block(position))
     if self:is_valid() and position then
@@ -516,6 +577,8 @@ function Ctron:distance_to(position)
     end
 end
 
+---comment
+---@param target MapPosition
 function Ctron:go_to(target)
     self:log(serpent.block(target))
     if self:is_valid() and target then
@@ -533,6 +596,8 @@ function Ctron:go_to(target)
     end
 end
 
+---comment
+---@param target MapPosition
 function Ctron:teleport_to(target)
     self:log()
     if self:is_valid() then
@@ -541,25 +606,31 @@ function Ctron:teleport_to(target)
     end
 end
 
+---comment
+---@return boolean
 function Ctron:get_construction_enabled()
     self:log()
     return self.construction_enabled == true
 end
 
+---comment
 function Ctron:enable_construction()
     self:log()
-    self:attach_text(self.entity, "enable_construction", self.debug.def.dynamic, 2)
+    self:attach_text(self.entity, "enable_construction", self.debug_definition.lines.dynamic, 2)
     self.construction_enabled = true
     self.entity.enable_logistics_while_moving = true
 end
 
+---comment
 function Ctron:disable_construction()
     self:log()
-    self:attach_text(self.entity, "disable_construction", self.debug.def.dynamic, 2)
+    self:attach_text(self.entity, "disable_construction", self.debug_definition.lines.dynamic, 2)
     self.construction_enabled = false
     self.entity.enable_logistics_while_moving = false
 end
 
+---comment
+---@return boolean
 function Ctron:robots_active()
     self:log()
     if self:is_valid() then
@@ -576,14 +647,19 @@ function Ctron:robots_active()
         end
     end
 end
+
+---comment
+---@return any
 function Ctron:robots_inactive()
     self:log()
     return (self:robots_active() ~= true)
 end
 
+---comment
+---@param path any
 function Ctron:set_autopilot(path)
     self:log()
-    self:attach_text(self.entity, "set_autopilot", self.debug.def.dynamic, 2)
+    self:attach_text(self.entity, "set_autopilot", self.debug_definition.lines.dynamic, 2)
     if self:is_valid() then
         --log("set_autopilot")
         self.entity.autopilot_destination = nil
@@ -593,6 +669,26 @@ function Ctron:set_autopilot(path)
             self.target = waypoint.position
         end
         self:set_status(self.status.traveling)
+    end
+end
+
+---comment
+function Ctron:update_slot_filters()
+    self:log()
+    local offset = 0
+    local inventory = self.entity.get_inventory(defines.inventory.spider_trunk)
+    log(serpent.block(self.inventory_filters))
+    for item, slot_count in pairs(self.inventory_filters) do
+        self:log(item .. ": " .. slot_count)
+        for i = 1, slot_count do
+            local slot = (#inventory) - offset
+            self:log(item .. ": " .. slot)
+            if not inventory.set_filter(slot, item) then
+                inventory[slot].clear()
+                inventory.set_filter(slot, item)
+            end
+            offset = offset + 1
+        end
     end
 end
 

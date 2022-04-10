@@ -1,7 +1,7 @@
 local Debug = require("__Constructron-2__.script.objects.Debug")
 local custom_lib = require("__Constructron-2__.data.lib.custom_lib")
 
--- class Type Job, nil members exist just to describe fields
+---@class Job : Debug
 local Job = {
     class_name = "Job",
     area = nil,
@@ -43,7 +43,7 @@ setmetatable(
     }
 )
 
--- Job Constructor
+
 function Job:new(obj)
     Debug.new(self)
     self:log()
@@ -84,7 +84,7 @@ function Job:set_status(status)
     end
     self.current_status = parsed_status
     if self.constructron then
-        self:attach_text(self.constructron.entity, text_status, self.debug.def.line_1, 2)
+        self:attach_text(self.constructron.entity, text_status, self.debug_definition.lines.line_1, 2)
     end
 end
 
