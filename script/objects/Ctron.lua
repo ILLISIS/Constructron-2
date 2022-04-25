@@ -6,25 +6,41 @@ local custom_lib = require("__Constructron-2__.data.lib.custom_lib")
 ---@class Ctron : Debug
 ---@field entity LuaEntity
 ---@field status table<string, number>
+---@field pathfinder Spidertron_Pathfinder
+---@field speed_sticker LuaEntity
+---@field fuel string
+---@field construction_enabled boolean
+---@field construction_robots table <string,any>
+---@field target MapPosition
+---@field job_id uint
+---@field managed_equipment table <string,table>
+---@field gear table <uint,string>
+---@field managed_equipment_cols uint
+---@field movement_research uint
+---@field inventory_filters table <string,uint>
 local Ctron = {
     class_name = "Ctron",
-    -- <base game spidertron entity unit_number used as PK for everything>
-    unit_number = nil,
-    -- <base game spidertron entity>
-    entity = nil,
-    name = nil,
-    force = nil,
-    registration_id = nil,
-    pathfinder = nil,
     gear = {},
     managed_equipment = {},
     managed_equipment_cols = 0,
     last_status_update_tick = 0,
     movement_research = 1,
-    inventory_filters = {}
+    inventory_filters = {},
+    status = {
+        requesting = 4,
+        robots_active = 3,
+        robots_charging = 10,
+        idle = 1,
+        traveling = 2,
+        error = 6,
+        pathfinding_failed = 9,
+        no_power = 7,
+        no_fuel = 8
+    }
 }
-Ctron.__index = Ctron
 
+--Class Initialization
+Ctron.__index = Ctron
 setmetatable(
     Ctron,
     {
@@ -37,7 +53,7 @@ setmetatable(
     }
 )
 
----comment
+---Constructor
 ---@param entity LuaEntity
 function Ctron:new(entity)
     self:log()
@@ -61,18 +77,8 @@ function Ctron:new(entity)
     end
 end
 
-Ctron.status = {
-    requesting = 4,
-    robots_active = 3,
-    robots_charging = 10,
-    idle = 1,
-    traveling = 2,
-    error = 6,
-    pathfinding_failed = 9,
-    no_power = 7,
-    no_fuel = 8
-}
---- Generic Type based initialization
+---Generic Type based initialization
+---TODO: move init to on_load
 function Ctron.init_globals()
     global.constructrons = global.constructrons or {}
     global.constructrons.units = global.constructrons.units or {}
@@ -80,9 +86,9 @@ function Ctron.init_globals()
     global.constructrons.unit_status = global.constructrons.unit_status or {}
 end
 
----comment
+---Initializes managed gear prototypes and stores default location
+---Uses gear's "order" field to store compute predefined location from csv-string
 function Ctron.init_managed_gear()
-    -- Use "order" field to store predefined grid location as csv
     for _, prototype in pairs(game.equipment_prototypes) do
         if prototype.equipment_categories and custom_lib.table_has_value(prototype.equipment_categories, "constructron-managed") then
             for x, y in (prototype.order):gmatch "constructron=(%d+);(%d+)" do --"constructron=3;1"
@@ -93,15 +99,31 @@ function Ctron.init_managed_gear()
     log("managed_equipment" .. serpent.block(Ctron.managed_equipment))
 end
 
----comment
+---Update of managed gear based on the force's unlocked techs
+---TODO: change to be entity based instead of prototype based
 function Ctron.update_tech_unlocks()
-    --just update tech unlocks for all forces
+    log("Ctron.update_tech_unlocks")
+    local tech_name = "ctron%-exoskeleton%-equipment%-(%d+)"
+    local max_tier = 1
+    --if self:is_valid() then
+    --local force = self.entity.force
+    local force = game.forces["player"]
+    for _, tech in pairs(force.technologies) do
+        if tech.researched then
+            for tier in (tech.name):gmatch(tech_name) do
+                max_tier = math.max(max_tier, tonumber(tier))
+            end
+        end
+    end
+    log("max_tier: " .. max_tier)
+    Ctron.movement_research = max_tier
+    --end
 end
 
 ---Equippment Grid Fixer
---- --> Rseding91: "The equipment grid has no idea what entity currently owns it - and may not even be owned by an entity."
---- --> on_player_removed_equipment event needs to operate on the grid and it is near impossible to get a related entity
---- --> we just care about the equipment_name and assume the layout was validated in Ctron:setup_gear()
+---Quote Rseding91: "The equipment grid has no idea what entity currently owns it - and may not even be owned by an entity."
+-----> on_player_removed_equipment event needs to operate on the grid and it is near impossible to get a related entity
+-----> we just care about the equipment_name and assume the layout was validated in Ctron:setup_gear()
 ---@param equipment_grid LuaEquipmentGrid
 ---@param equipment_name string
 function Ctron.restore_gear(equipment_grid, equipment_name)
@@ -109,22 +131,24 @@ function Ctron.restore_gear(equipment_grid, equipment_name)
     if equipment_grid then
         local grid_contents = equipment_grid.get_contents()
         if grid_contents and not grid_contents[equipment_name] and Ctron.managed_equipment[equipment_name] then
-            equipment_grid.put {
-                name = equipment_name,
-                position = Ctron.managed_equipment[equipment_name]
-            }
+            equipment_grid.put(
+                {
+                    name = equipment_name,
+                    position = Ctron.managed_equipment[equipment_name]
+                }
+            )
         end
     end
 end
 
----comment
+---Get registered force,surface and id based on constructron's unit_registration_number
 ---@param unit_registration_number int
 ---@return table
 function Ctron.get_registered_unit(unit_registration_number)
     return global.constructrons.unit_registration[unit_registration_number]
 end
 
----comment
+---Cleanup of globals
 function Ctron:destroy()
     self:log()
     global.constructrons.unit_registration[self.registration_id] = nil
@@ -132,11 +156,13 @@ function Ctron:destroy()
     global.constructrons.unit_status[self.unit_number] = nil
 end
 
+---entity validation
 function Ctron:is_valid()
     --self:log()
     return (self.entity and self.entity.valid)
 end
 
+---regular unit maintenance tasks
 function Ctron:tick_update()
     self:log()
     log("Ctron:tick_update")
@@ -173,9 +199,12 @@ function Ctron:tick_update()
             if next_waypoint then
                 local distance_from_next_waypoint = self:distance_to(next_waypoint)
                 if distance_from_next_waypoint < distance.nearby then
-                    --ToDo: create slow sticker prototype in data stage
-                    --ToDo: attach 75% slow sticker (1.5s)
-                    -- see Companion drones for example code
+                    --attach slow sticker
+                    if self:is_moving() then
+                        self:set_speed_sticker()
+                    else
+                        self:set_speed_sticker(true)
+                    end
                     log("sticker")
                 end
             else
@@ -187,7 +216,7 @@ function Ctron:tick_update()
     end
 end
 
----comment
+---unit's status update
 ---@return nil
 function Ctron:status_update()
     self:log()
@@ -200,11 +229,14 @@ function Ctron:status_update()
         end
 
         if self.target then
+            -- if travel times out alert the player
             return self:set_status(Ctron.status.traveling)
         end
 
         if self:is_moving() == false and self.construction_enabled then
             if self:robots_inactive() == false then
+                --todo add timeout
+                --also: if robots time-out we need to collect them --> drop items on the floor mark them for decon and destroy the robots
                 return self:set_status(Ctron.status.robots_active)
             end
 
@@ -220,6 +252,7 @@ function Ctron:status_update()
             local active_logistic_requests = self:get_logistic_status() or {}
             if custom_lib.table_length(active_logistic_requests) > 0 then
                 --todo check if items are avaliable at all in network
+                --todo add timeout
                 return self:set_status(Ctron.status.requesting)
             end
         end
@@ -236,15 +269,18 @@ function Ctron:status_update()
     end
 end
 
----comment
+---helper to get the correct gear name based on tech level
+---TODO: Change to be instance not prototype based
 ---@param name string
 ---@return string
 function Ctron:parse_gear_name(name)
-    name = string.gsub(name, "{movement_research}", tostring(self.movement_research))
+    self:log()
+    name = string.gsub(name, "{movement_research}", tostring(Ctron.movement_research))
     return name
 end
 
----comment
+---remove unmanaged equippment from first n rows
+---setup mananaged gear in first n rows
 function Ctron:setup_gear()
     self:log()
     self:attach_text(self.entity, "update_gear", self.debug_definition.lines.dynamic, 2)
@@ -296,11 +332,10 @@ function Ctron:setup_gear()
                 }
             end
         end
-    -- if not moving and auto pilot nil and target then go to target
     end
 end
 
----comment
+---get health ratio 0(dead) --> 1(healthy)
 ---@return float
 function Ctron:get_health_ratio()
     self:log()
@@ -310,18 +345,21 @@ function Ctron:get_health_ratio()
     return 0
 end
 
+---if the constructron is assigned to a job get the job-id
 function Ctron:get_job_id()
     self:log()
     return self.job_id
 end
 
+---assignes the constructron to a job
+---@param job_id string|number
 function Ctron:assign_job(job_id)
     self:log()
     self:attach_text(self.entity, "set_job", self.debug_definition.lines.dynamic, 2)
     self.job_id = job_id
 end
 
----comment
+---update constructrons unit-status-field
 ---@param status string|int
 ---@return string
 function Ctron:set_status(status)
@@ -351,14 +389,14 @@ function Ctron:set_status(status)
     end
 end
 
----comment
+---check when the last lastus update happened
 ---@return number|uint
 function Ctron:get_last_status_update_tick()
     self:log()
     return self.last_status_update_tick
 end
 
----comment
+---get status id
 ---@return number
 function Ctron:get_status_id()
     self:log()
@@ -375,7 +413,7 @@ function Ctron:get_status_id()
     return Ctron.status.idle
 end
 
----comment
+---get status name
 ---@return string
 function Ctron:get_status_name()
     self:log()
@@ -389,7 +427,7 @@ function Ctron:get_status_name()
     return "idle" --return Ctron.status.idle
 end
 
----comment
+---get simplified inventory contents
 ---@param inventory_type string
 ---@return table
 function Ctron:get_inventory(inventory_type)
@@ -418,7 +456,7 @@ function Ctron:get_inventory(inventory_type)
     return items
 end
 
----comment
+---get simplified inventory information
 ---@return table
 function Ctron:get_main_inventory_stats()
     self:log()
@@ -438,7 +476,7 @@ function Ctron:get_main_inventory_stats()
     end
 end
 
----comment
+---check if the unit is currently within an external logistic network
 ---@return boolean
 function Ctron:in_logistic_network()
     if self:is_valid() then
@@ -450,7 +488,7 @@ function Ctron:in_logistic_network()
     end
 end
 
----comment
+---check if the unit's logistic requests are satisfied
 ---@return table
 function Ctron:get_logistic_status()
     self:log()
@@ -480,9 +518,18 @@ function Ctron:get_logistic_status()
     return request
 end
 
----comment
----@param request_items table
----@param item_whitelist table
+---gets the construction radius for the units own logistic cell
+---@return float
+function Ctron:get_construction_radius()
+    self:log()
+    if self:is_valid() then
+        return self.entity.logistic_cell.construction_radius * 0.8
+    end
+end
+
+---sets logistic requests, existing unrequested items will be trashed if not whitelisted
+---@param request_items table items to request
+---@param item_whitelist table items to keep
 ---@return boolean
 function Ctron:set_request_items(request_items, item_whitelist)
     self:log()
@@ -503,7 +550,6 @@ function Ctron:set_request_items(request_items, item_whitelist)
         -- set requests
         --log(serpent.block(request_items))
         local slot = 1
-
         --trash everything + request everything new + fuel + robots
         local max_request_slot_count = self.entity.prototype.get_inventory_size(defines.inventory.spider_trunk) * 2 + 2
         for name, count in pairs(request_items) do
@@ -532,20 +578,20 @@ function Ctron:set_request_items(request_items, item_whitelist)
     end
 end
 
----comment
+---clears all items from inventory
 function Ctron:clear_items()
     self:log()
     self:set_request_items({})
 end
 
----comment
+---removes all requests for new items, but keeps the requests for items currently in the inventory
 function Ctron:clear_requests()
     self:log()
     local inventory = Ctron:get_inventory("spider_trunk")
     self:set_request_items({}, inventory)
 end
 
----comment
+---current unit position including surface and speed
 ---@return table
 function Ctron:get_position()
     self:log()
@@ -558,7 +604,7 @@ function Ctron:get_position()
     end
 end
 
----comment
+---are we moving?
 ---@return boolean
 function Ctron:is_moving()
     self:log()
@@ -567,7 +613,7 @@ function Ctron:is_moving()
     end
 end
 
----comment
+---distance to target position
 ---@param position MapPosition
 ---@return number
 function Ctron:distance_to(position)
@@ -577,7 +623,8 @@ function Ctron:distance_to(position)
     end
 end
 
----comment
+---move to the target using the factorio pathfinder
+---(unless we are nearby in which case a direct move will be executed)
 ---@param target MapPosition
 function Ctron:go_to(target)
     self:log(serpent.block(target))
@@ -596,7 +643,7 @@ function Ctron:go_to(target)
     end
 end
 
----comment
+---teleport to the target
 ---@param target MapPosition
 function Ctron:teleport_to(target)
     self:log()
@@ -606,14 +653,14 @@ function Ctron:teleport_to(target)
     end
 end
 
----comment
+---check if the unit is set up for construction
 ---@return boolean
 function Ctron:get_construction_enabled()
     self:log()
     return self.construction_enabled == true
 end
 
----comment
+---set up unit for construction
 function Ctron:enable_construction()
     self:log()
     self:attach_text(self.entity, "enable_construction", self.debug_definition.lines.dynamic, 2)
@@ -621,7 +668,7 @@ function Ctron:enable_construction()
     self.entity.enable_logistics_while_moving = true
 end
 
----comment
+---disable construction
 function Ctron:disable_construction()
     self:log()
     self:attach_text(self.entity, "disable_construction", self.debug_definition.lines.dynamic, 2)
@@ -629,7 +676,16 @@ function Ctron:disable_construction()
     self.entity.enable_logistics_while_moving = false
 end
 
----comment
+---removes all requests without touching inventory
+function Ctron:cancel_requests()
+    self:log()
+    self:attach_text(self.entity, "cancel_requests", self.debug_definition.lines.dynamic, 2)
+    for i = 1, self.entity.request_slot_count do
+        self.entity.clear_vehicle_logistic_slot(i)
+    end
+end
+
+---checks if the unit's construction robots are deplyed
 ---@return boolean
 function Ctron:robots_active()
     self:log()
@@ -648,14 +704,14 @@ function Ctron:robots_active()
     end
 end
 
----comment
+---checks if the unit's construction robots are stashed
 ---@return any
 function Ctron:robots_inactive()
     self:log()
     return (self:robots_active() ~= true)
 end
 
----comment
+---start moving on a path using the unit's autopilot system
 ---@param path any
 function Ctron:set_autopilot(path)
     self:log()
@@ -664,15 +720,22 @@ function Ctron:set_autopilot(path)
         --log("set_autopilot")
         self.entity.autopilot_destination = nil
         self:disable_construction()
+        self:cancel_requests()
         for i, waypoint in ipairs(path) do
             self.entity.add_autopilot_destination(waypoint.position)
             self.target = waypoint.position
         end
-        self:set_status(self.status.traveling)
+        if self.target then
+            --self:clear_passengers()
+            self:attach_text(self.entity, "target: " .. math.floor(self.target.x * 10) / 10 .. " / " .. math.floor(self.target.y * 10) / 10, self.debug_definition.lines.dynamic, 2)
+            self:set_status(self.status.traveling)
+        else
+            self:set_status(self.status.idle)
+        end
     end
 end
 
----comment
+---set inventory slot filters
 function Ctron:update_slot_filters()
     self:log()
     local offset = 0
@@ -689,6 +752,40 @@ function Ctron:update_slot_filters()
             end
             offset = offset + 1
         end
+    end
+end
+
+---slow down unit using a speed sticker
+---@param extended boolean apply a extended duration sticker
+function Ctron:set_speed_sticker(extended)
+    if self.speed_sticker and self.speed_sticker.valid then
+        return
+    end
+    self.speed_sticker =
+        self.entity.surface.create_entity(
+        {
+            name = "ctron-speed-sticker",
+            target = self.entity,
+            force = self.entity.force,
+            position = self.entity.position
+        }
+    )
+    if extended then
+        self.speed_sticker.time_to_live = 120
+    end
+    self.speed_sticker.active = true
+end
+
+---remove all passengers from the unit
+function Ctron:clear_passengers()
+    if self.entity.driver and self.entity.driver.valid then
+        self.entity.driver.destroy()
+        self.entity.driver = nil
+    end
+
+    if self.entity.passenger and self.entity.passenger.valid then
+        self.entity.passenger.destroy()
+        self.entity.passenger = nil
     end
 end
 

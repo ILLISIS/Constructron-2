@@ -7,6 +7,17 @@ local Job = require("__Constructron-2__.script.objects.Job")
 local Ctron = require("__Constructron-2__.script.objects.Ctron")
 
 ---@class Surface_manager : Debug
+---@field id uint | string primary key to be used for arrays and in globals
+---@field surface_index uint
+---@field surface LuaSurface
+---@field force LuaForce
+---@field force_index uint
+---@field chunks table
+---@field tasks table<uint,Task>
+---@field jobs table<uint,Job>
+---@field constructrons table<uint,Ctron>
+---@field stations table<uint,Station>
+---@field job_actions table
 local Surface_manager = {
     class_name = "Surface_manager"
 }
@@ -24,7 +35,9 @@ setmetatable(
     }
 )
 
--- Surface_manager Constructor
+---Constructor
+---@param surface LuaSurface
+---@param force LuaForce
 function Surface_manager:new(surface, force)
     -- if force needs to be added it should be sufficient to modify control.lua
     self:log()
@@ -56,16 +69,19 @@ function Surface_manager:new(surface, force)
     end
 end
 
--- Static Methods
+--- Generic Type based initialization
 function Surface_manager.init_globals()
     global.surface_managers = global.surface_managers or {}
 end
 
+---Static Method to get the chunk x,y a MapPositions is located in
+---@param position MapPosition
+---@return uint, uint
 function Surface_manager.chunk_from_position(position)
     return math.floor((position.x or position[1]) / 32), math.floor((position.y or position[2]) / 32)
 end
 
--- Class Methods
+---Destructor
 function Surface_manager:destroy()
     self:log()
     -- ToDo call destroy for  all managed entities on force/surface
@@ -74,6 +90,8 @@ function Surface_manager:destroy()
     end
 end
 
+---Are we still valid (lua-object + surface)
+---@return boolean
 function Surface_manager:valid()
     self:log()
     if self.surface.valid == false then
@@ -88,7 +106,7 @@ end
 --  Surface Processing
 -------------------------------------------------------------------------------
 
-
+---Update all relevant managed things on this surface
 function Surface_manager:tick_update()
     self:log()
     for key, constructron in pairs(self.constructrons) do
@@ -109,6 +127,8 @@ function Surface_manager:tick_update()
     end
 end
 
+---Get stats for managed things on this surface
+---@return table
 function Surface_manager:get_stats()
     self:log()
     return {
@@ -116,21 +136,29 @@ function Surface_manager:get_stats()
     }
 end
 
+---Assign a new contructron to this surface
+---@param constructron Ctron
 function Surface_manager:add_constructron(constructron)
     self:log(constructron.unit_number)
     self.constructrons[constructron.unit_number] = constructron
 end
 
+---Assign a new service-station  to this surface
+---@param station Station
 function Surface_manager:add_station(station)
     self:log(station.unit_number)
     self.stations[station.unit_number] = station
 end
 
+---Remove a contructron from this surface
+---@param constructron LuaEntity
 function Surface_manager:remove_constructron(constructron)
     self:log(constructron.unit_number)
     self.constructrons[constructron.unit_number] = nil
 end
 
+--- NOT IMPLEMENTED
+---@param constructron_data table
 function Surface_manager:constructron_destroyed(constructron_data) -- luacheck: ignore
     self:log()
     --if self.constructrons[constructron_data.unit_number] then
@@ -139,16 +167,22 @@ function Surface_manager:constructron_destroyed(constructron_data) -- luacheck: 
     --end
 end
 
+---Remove a service-station from this surface
+---@param station LuaEntity
 function Surface_manager:remove_station(station)
     self:log(station.unit_number)
     self.stations[station.unit_number] = nil
 end
 
+--- NOT IMPLEMENTED
+---@param station_data table
 function Surface_manager:station_destroyed(station_data) -- luacheck: ignore
     self:log()
     --self:remove_station(...)
 end
 
+---Get an idle constructron on this surface
+---@return Ctron
 function Surface_manager:get_free_constructron() -- luacheck: ignore
     self:log()
     for _, constructron in pairs(self.constructrons) do
@@ -158,28 +192,83 @@ function Surface_manager:get_free_constructron() -- luacheck: ignore
     end
 end
 
-function Surface_manager:get_station(items, position) -- luacheck: ignore
+---Get a Station; The Stations are selected based on a score: #1 number of different avaliable items #2 distance to target_position #3 random variance
+---@param items table
+---@param target_position MapPosition
+---@return Station
+function Surface_manager:get_station(items, target_position, constructron_position)
     self:log()
-    -- score stations
-    -- if #(items>0) >0
-    --      #1 based on numer of avaliable items
-    --      #2 on total count of avaliable items
-    --      #3 on distance to constructron
-    -- else
-    --      #3 on distance to constructron
-    --      #4 on constructrons at the station to
-    log(serpent.block(self.stations))
-    local unit_count = custom_lib.table_length(self.stations)
-    log("#stations.." .. unit_count)
-    if unit_count > 0 then
-        local _, station = next(self.stations)
-        return station
+    local score = {}
+    local max_distance = 0
+    if not target_position then
+        return
+    end
+
+    for _, station in pairs(self.stations) do
+        if station and station:is_valid() then
+            local distance = station:distance_to(target_position) + station:distance_to(constructron_position)
+            max_distance = math.max(distance, max_distance)
+        end
+    end
+    if not max_distance then
+        return
+    end
+    -- we can service if we don't need items
+    local can_service = (custom_lib.table_length(items) == 0)
+    for _, station in pairs(self.stations) do
+        if station and station:is_valid() then
+            score[station.id] = 0
+            if custom_lib.table_length(items) > 0 then
+                -- #1 based on numer of avaliable items
+                local provided_items = station:get_inventory(items)
+                self:log(station.id .. ":" .. serpent.block(provided_items))
+                score[station.id] = score[station.id] + custom_lib.table_length(provided_items) / custom_lib.table_length(items)
+                if custom_lib.table_length(provided_items) then
+                    can_service = true
+                end
+            end
+            if score[station.id] > 0 then
+                -- #2 with a slight variance
+                score[station.id] = score[station.id] + math.random() / 10
+                score[station.id] = math.floor(score[station.id] * 20) / 20
+            end
+            -- #3 on distance to jobsite or constructron
+            local distance = station:distance_to(target_position) + station:distance_to(constructron_position)
+            score[station.id] = score[station.id] + (0.3 - 0.3 * distance / max_distance)
+
+            log(score[station.id])
+        end
+    end
+    if can_service == false then
+        return
+    end
+
+    local station_score = {}
+    for key, value in pairs(score) do
+        station_score[#station_score + 1] = {key = key, score = value}
+    end
+
+    table.sort(
+        station_score,
+        function(a, b)
+            return a.score < b.score
+        end
+    )
+    local _, selected_station = next(station_score)
+    if selected_station then
+        local selected = self.stations[selected_station.key]
+        self:log("selected station " .. serpent.block(selected_station) .. ";" .. serpent.block(selected))
+        self:log("selected: " .. selected.id)
+        return selected
     end
 end
 
 -------------------------------------------------------------------------------
 --  Entity Processing
 -------------------------------------------------------------------------------
+
+---Process a LuaEntity requireing some kind of constructron action
+---@param entity LuaEntity
 function Surface_manager:process_entity(entity)
     self:log()
     if
@@ -192,6 +281,8 @@ function Surface_manager:process_entity(entity)
     end
 end
 
+---Assign a LuaEntity to a specific chunk group, to be processed later
+---@param entity LuaEntity
 function Surface_manager:register_entity(entity)
     self:log()
     local x, y = Surface_manager.chunk_from_position(entity.position)
@@ -208,6 +299,8 @@ function Surface_manager:register_entity(entity)
     end
 end
 
+---Remove a LuaEntity from a specific chunk group
+---@param entity LuaEntity
 function Surface_manager:unregister_entity(entity) -- luacheck: ignore
     self:log()
     local x, y = Surface_manager.chunk_from_position(entity.position)
@@ -219,12 +312,18 @@ function Surface_manager:unregister_entity(entity) -- luacheck: ignore
         self.chunks[key] = nil
     end
 end
+
+---Create a new construction Task on this surface
+---@param task Task
 function Surface_manager:add_task(task)
     self:log()
     self:log("registered task: " .. serpent.block(task) .. "(" .. task.class_name .. ")")
-    self.tasks[#(self.tasks)] = task
+    self.tasks[#(self.tasks) + 1] = task
 end
 
+---Create construction Tasks from entities saved in chunk groups
+---@param limit uint
+---@return uint
 function Surface_manager:assign_tasks(limit)
     self:log()
     limit = limit or 10
@@ -267,6 +366,8 @@ end
 -------------------------------------------------------------------------------
 --  Job Processing
 -------------------------------------------------------------------------------
+
+---Main Worker: FSM for Job processing
 function Surface_manager:run_jobs()
     self:log()
     for key, job in pairs(self.jobs) do
@@ -278,22 +379,20 @@ function Surface_manager:run_jobs()
         local state_based_action = self.job_actions[job:get_status()]
         local new_state = state_based_action:handleStateTransition(job)
         log("job.new_status: " .. (new_state or "-"))
-        if new_state then
+
+        if job:get_status_id() == Job.status.completed then
+            job:destroy()
+            self.jobs[key] = nil
+        elseif new_state then
             job:set_status(new_state)
         end
         game.print(job:get_status())
-        if job:get_status_id() == Job.status.completed then
-            job:destroy(
-                function(task)
-                    -- callback to re-register unfinished tasks with self
-                    self:add_task(task)
-                end
-            )
-            self.jobs[key] = nil
-        end
     end
 end
 
+---Create new Jobs from unassigned Tasks
+---@param limit uint
+---@return uint
 function Surface_manager:assign_jobs(limit)
     self:log()
     if not next(self.constructrons) then
